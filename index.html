@@ -154,6 +154,7 @@
   .p-inp{width:100%;border:1px solid var(--border);border-radius:var(--rs);padding:5px 8px;font-size:13px;color:var(--text);background:var(--surface);outline:none;font-family:'Pretendard',sans-serif;line-height:1.5}
   .p-inp:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(14,116,144,0.1)}
   .p-ta{resize:vertical;min-height:56px}
+  .p-ta-lg{resize:vertical;min-height:280px}
   .ctr.editing{border:1.5px solid var(--orange);box-shadow:0 0 0 3px rgba(249,115,22,0.1)}
   .edit-mode-banner{background:var(--orange-bg);border-bottom:1px solid #fed7aa;padding:6px 1.5rem;font-size:12px;color:#c2410c;font-weight:600;display:flex;align-items:center;gap:6px}
   .group-divider{grid-column:1/-1;display:flex;align-items:center;gap:10px;padding:4px 2px 2px;margin-top:4px}
@@ -662,14 +663,14 @@ function renderPanel(){
   const ok=isOk(rep.hasContract);
 
   // 필드 렌더 헬퍼
-  function fld(key,label,src,full,multi){
+  function fld(key,label,src,full,multi,big){
     const raw=src[key]??'';
     const val=String(raw);
     const esc=val.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     const cls='di'+(full?' full':'');
     if(ed){
       return multi
-        ?`<div class="${cls}"><div class="di-l">${label}</div><textarea class="p-inp p-ta" data-field="${key}" rows="3">${esc}</textarea></div>`
+        ?`<div class="${cls}"><div class="di-l">${label}</div><textarea class="p-inp p-ta${big?' p-ta-lg':''}" data-field="${key}" rows="${big?15:3}">${esc}</textarea></div>`
         :`<div class="${cls}"><div class="di-l">${label}</div><input class="p-inp" data-field="${key}" value="${esc}"></div>`;
     }
     return`<div class="${cls}"><div class="di-l">${label}</div><div class="di-v">${val||'-'}</div></div>`;
@@ -751,7 +752,7 @@ function renderPanel(){
           ${fld('ownCharger','당사 충전기',rep)}
           ${fld('ownPrice','당사 요금',rep)}
           ${fld('ownParking','당사 병행주차 여부',rep,true)}
-          ${fld('installPos','설치 위치',rep,true,true)}
+          ${fld('installPos','설치 위치',rep,true,true,true)}
         </div>
       </div>
       <div class="sec">
@@ -761,12 +762,12 @@ function renderPanel(){
           ${fld('competitorQty','충전기 수량',rep)}
           ${fld('cpoPrice','타사 요금',rep)}
           ${fld('cpoParking','타사 병행주차',rep)}
-          ${fld('competitorPos','설치위치',rep,true,true)}
+          ${fld('competitorPos','설치위치',rep,true,true,true)}
         </div>
       </div>
       <div class="sec">
         <div class="sec-t">특이사항</div>
-        <div class="dg">${fld('note','내용',rep,true,true)}</div>
+        <div class="dg">${fld('note','내용',rep,true,true,true)}</div>
       </div>
     </div>`;
 }
