@@ -55,7 +55,7 @@
   .sort-btn.active{border-color:var(--accent);color:var(--accent);background:var(--accent-bg)}
   .main{padding:1.25rem 1.5rem}
   .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
-  @media(max-width:700px){.grid{grid-template-columns:repeat(2,1fr);gap:8px}.card.multi{grid-column:1/-1}.c-foot{flex-direction:column;align-items:flex-start;justify-content:flex-start;gap:2px}.c-charger{white-space:nowrap;text-align:left;width:100%}.c-note{max-width:100%;text-align:left;white-space:normal;width:100%}.c-top{flex-direction:column-reverse;gap:3px;align-items:flex-start}.c-name{text-align:left;width:100%}.c-chips{justify-content:flex-start}.c-addr{text-align:left}
+  @media(max-width:700px){.grid{grid-template-columns:repeat(2,1fr);gap:8px}.c-foot{flex-direction:column;align-items:flex-start;justify-content:flex-start;gap:2px}.c-charger{white-space:nowrap;text-align:left;width:100%}.c-note{max-width:100%;text-align:left;white-space:normal;width:100%}.c-top{flex-direction:column-reverse;gap:3px;align-items:flex-start}.c-name{text-align:left;width:100%}.c-chips{justify-content:flex-start}.c-addr{text-align:left}
     .logo{font-size:13px;gap:6px}.logo-dot{width:18px;height:18px;font-size:8px}
     .hd-right{gap:4px}.hd-count{display:none}
     .reload-btn{padding:6px;font-size:0;width:32px;height:32px;justify-content:center;overflow:hidden}
@@ -92,6 +92,9 @@
   .sub-ym{font-size:10px}
   .sub-ym.danger{color:#ef4444}.sub-ym.warning{color:#f97316}.sub-ym.caution{color:#3b82f6}.sub-ym.success{color:#22c55e}.sub-ym.none{color:var(--text3)}
   .sub-meta{font-size:10px;color:var(--text3)}
+  .multi-note{padding:6px 1rem 8px 1.35rem;border-top:1px solid var(--border);font-size:11px;color:var(--text2);line-height:1.5}
+  .multi-note-label{font-size:9px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px}
+  .multi-note-text{white-space:pre-wrap;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical}
   .c-inner{padding-left:8px}
   .c-top{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:4px}
   .c-name{font-weight:700;font-size:14px;line-height:1.4;flex:1;color:var(--text);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;min-width:0}
@@ -493,8 +496,8 @@ function applyFilters(){
   });
   if(sortMode==='asc')filtered.sort((a,b)=>(a.group||'').localeCompare(b.group||'','ko'));
   if(sortMode==='desc')filtered.sort((a,b)=>(b.group||'').localeCompare(a.group||'','ko'));
-  if(sortMode==='insp-asc')filtered.sort((a,b)=>{const g=(a.group||'').localeCompare(b.group||'','ko');if(g!==0)return g;const da=getLatestInspDate(a).date;const db=getLatestInspDate(b).date;if(!da&&!db)return 0;if(!da)return 1;if(!db)return -1;return da-db;});
-  if(sortMode==='insp-desc')filtered.sort((a,b)=>{const g=(a.group||'').localeCompare(b.group||'','ko');if(g!==0)return g;const da=getLatestInspDate(a).date;const db=getLatestInspDate(b).date;if(!da&&!db)return 0;if(!da)return 1;if(!db)return -1;return db-da;});
+  if(sortMode==='insp-asc')filtered.sort((a,b)=>{const g=groupPrefix(a.group).localeCompare(groupPrefix(b.group),'ko');if(g!==0)return g;const da=getLatestInspDate(a).date;const db=getLatestInspDate(b).date;if(!da&&!db)return 0;if(!da)return 1;if(!db)return -1;return da-db;});
+  if(sortMode==='insp-desc')filtered.sort((a,b)=>{const g=groupPrefix(a.group).localeCompare(groupPrefix(b.group),'ko');if(g!==0)return g;const da=getLatestInspDate(a).date;const db=getLatestInspDate(b).date;if(!da&&!db)return 0;if(!da)return 1;if(!db)return -1;return db-da;});
   renderGrid();
   const cc=filtered.reduce((s,l)=>s+l.contracts.length,0);
   document.getElementById('hd-count').textContent=`총 ${filtered.length}개 국소 · ${cc}개 계약`;
@@ -576,6 +579,7 @@ function renderGrid(){
         </div>
       </div>
       <div>${subRows}</div>
+      ${(()=>{const n=l.contracts.find(c=>c.note&&String(c.note).trim());return n?`<div class="multi-note"><div class="multi-note-label">특이사항</div><div class="multi-note-text">${n.note}</div></div>`:''})()}
     </div>`;
   });
   grid.innerHTML=html;
@@ -677,6 +681,18 @@ function saveEdits(){
   const fbFields={};
   editableFields.forEach(f=>{fbFields[f]=contract[f]??'';});
   fbSave(contract._rowIdx, fbFields);
+
+  // 다중계약: 점검일자,점검자,특이사항 등 국소 공통 필드를 다른 계약에도 동기화
+  const sharedFields=['inspection','inspector','note','revenue','ownCharger','installPos','ownPrice','ownParking','competitor','competitorPos','competitorQty','cpoPrice','cpoParking'];
+  if(l.contracts.length>1){
+    l.contracts.forEach(other=>{
+      if(other===contract)return;
+      sharedFields.forEach(f=>{other[f]=contract[f];});
+      const ofb={};
+      editableFields.forEach(f=>{ofb[f]=other[f]??'';});
+      fbSave(other._rowIdx, ofb);
+    });
+  }
   pState.ed=false;renderPanel();renderGrid();
 }
 
