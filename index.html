@@ -153,7 +153,7 @@
   .p-btn.cancel-btn{color:var(--text2)}
   .p-inp{width:100%;border:1px solid var(--border);border-radius:var(--rs);padding:5px 8px;font-size:13px;color:var(--text);background:var(--surface);outline:none;font-family:'Pretendard',sans-serif;line-height:1.5}
   .p-inp:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(14,116,144,0.1)}
-  .p-ta{resize:vertical;min-height:56px}
+  .p-ta{resize:vertical;min-height:56px;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
   .p-ta-lg{resize:vertical;min-height:280px}
   .ctr.editing{border:1.5px solid var(--orange);box-shadow:0 0 0 3px rgba(249,115,22,0.1)}
   .edit-mode-banner{background:var(--orange-bg);border-bottom:1px solid #fed7aa;padding:6px 1.5rem;font-size:12px;color:#c2410c;font-weight:600;display:flex;align-items:center;gap:6px}
@@ -318,6 +318,29 @@ overlay.addEventListener('mouseup',e=>{
   mdTarget=null;
 });
 
+// 모바일: textarea 내부 스크롤 시 패널 스크롤 방지
+(function(){
+  const panel=document.getElementById('panel');
+  let taTouch=null;
+  panel.addEventListener('touchstart',function(e){
+    const ta=e.target.closest('textarea');
+    if(ta&&ta.scrollHeight>ta.clientHeight){
+      taTouch={el:ta,y:e.touches[0].clientY};
+    }else{taTouch=null;}
+  },{passive:true});
+  panel.addEventListener('touchmove',function(e){
+    if(!taTouch)return;
+    const ta=taTouch.el;
+    const dy=taTouch.y-e.touches[0].clientY;
+    taTouch.y=e.touches[0].clientY;
+    // textarea가 스크롤 가능한 상태일때 패널 스크롤 차단
+    const atTop=ta.scrollTop<=0&&dy<0;
+    const atBottom=ta.scrollTop+ta.clientHeight>=ta.scrollHeight&&dy>0;
+    if(!atTop&&!atBottom){e.preventDefault();}
+  },{passive:false});
+  panel.addEventListener('touchend',function(){taTouch=null;},{passive:true});
+})();
+
 const dropZone=document.getElementById('drop-zone');
 const fileInput=document.getElementById('file-input');
 dropZone.addEventListener('dragover',e=>{e.preventDefault();dropZone.classList.add('drag-over')});
@@ -470,8 +493,8 @@ function applyFilters(){
   });
   if(sortMode==='asc')filtered.sort((a,b)=>(a.group||'').localeCompare(b.group||'','ko'));
   if(sortMode==='desc')filtered.sort((a,b)=>(b.group||'').localeCompare(a.group||'','ko'));
-  if(sortMode==='insp-asc')filtered.sort((a,b)=>{const da=getLatestInspDate(a).date;const db=getLatestInspDate(b).date;if(!da&&!db)return 0;if(!da)return 1;if(!db)return -1;return da-db;});
-  if(sortMode==='insp-desc')filtered.sort((a,b)=>{const da=getLatestInspDate(a).date;const db=getLatestInspDate(b).date;if(!da&&!db)return 0;if(!da)return 1;if(!db)return -1;return db-da;});
+  if(sortMode==='insp-asc')filtered.sort((a,b)=>{const g=(a.group||'').localeCompare(b.group||'','ko');if(g!==0)return g;const da=getLatestInspDate(a).date;const db=getLatestInspDate(b).date;if(!da&&!db)return 0;if(!da)return 1;if(!db)return -1;return da-db;});
+  if(sortMode==='insp-desc')filtered.sort((a,b)=>{const g=(a.group||'').localeCompare(b.group||'','ko');if(g!==0)return g;const da=getLatestInspDate(a).date;const db=getLatestInspDate(b).date;if(!da&&!db)return 0;if(!da)return 1;if(!db)return -1;return db-da;});
   renderGrid();
   const cc=filtered.reduce((s,l)=>s+l.contracts.length,0);
   document.getElementById('hd-count').textContent=`총 ${filtered.length}개 국소 · ${cc}개 계약`;
@@ -498,7 +521,7 @@ function renderGrid(){
   let html='';let lastPrefix=null;
   filtered.forEach((l,li)=>{
     // 정렬 활성화 시: 알파벳이 바뀌면 구분선 삽입
-    if(sortMode==='asc'||sortMode==='desc'){
+    if(sortMode){
       const p=groupPrefix(l.group);
       if(p!==lastPrefix){
         html+=`<div class="group-divider"><span class="group-divider-badge">${p||'?'}</span><div class="group-divider-line"></div></div>`;
@@ -587,8 +610,9 @@ function renderSingle(l,li,ci){
       ${l.endDate?`<div class="c-end">만료: ${l.endDate}</div>`:''}
       <div class="c-foot">
         <div class="c-charger">충전기 <span>${l.total||'-'}</span>기</div>
-        ${inspDate.str?`<div class="c-note" style="color:var(--text2)">점검 ${inspDate.str}</div>`:l.note?`<div class="c-note">${l.note}</div>`:''}
+        ${inspDate.str?`<div class="c-note" style="color:var(--text2)">점검 ${inspDate.str}</div>`:''}
       </div>
+      ${l.note?`<div class="c-note" style="margin-top:4px;max-width:100%;white-space:normal;overflow:visible;font-size:11px;color:var(--text3)">${l.note}</div>`:''}
     </div>
   </div>`;
 }
