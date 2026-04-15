@@ -223,6 +223,8 @@
     </select>
     <button type="button" id="sort-asc" class="sort-btn" onclick="setSort('asc')">그룹 ↑</button>
     <button type="button" id="sort-desc" class="sort-btn" onclick="setSort('desc')">그룹 ↓</button>
+    <button type="button" id="sort-insp-asc" class="sort-btn" onclick="setSort('insp-asc')">점검일 ↑</button>
+    <button type="button" id="sort-insp-desc" class="sort-btn" onclick="setSort('insp-desc')">점검일 ↓</button>
     <button type="button" class="reset-btn" onclick="resetFilters()">초기화</button>
   </div>
   <div class="main">
@@ -385,6 +387,21 @@ function getInspectionStatus(inspection){
 }
 
 function addrShort(l){
+
+// 국소의 모든 계약 중 가장 최근 점검일 반환
+function getLatestInspDate(l){
+  let latest=null;let latestStr='';
+  for(const c of l.contracts){
+    const raw=c.inspection;if(!raw)continue;
+    const s=String(raw).trim();
+    let d=null;
+    const m1=s.match(/(\d{4})[.\-\/](\d{1,2})[.\-\/](\d{1,2})/);
+    if(m1){d=new Date(+m1[1],+m1[2]-1,+m1[3]);}
+    else{const m2=s.match(/^(\d{4})(\d{2})(\d{2})$/);if(m2)d=new Date(+m2[1],+m2[2]-1,+m2[3]);}
+    if(d&&!isNaN(d)&&(!latest||d>latest)){latest=d;latestStr=`${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`;}
+  }
+  return{date:latest,str:latestStr};
+}
   const addr=l.address||'';const sigungu=l.sigungu||'';
   if(l.do_==='서울')return`${l.do_} ${sigungu}`;
   const tokens=addr.split(/[\s,(]+/);
@@ -431,7 +448,7 @@ function updateSigungu(){
   sigs.forEach(s=>sel.innerHTML+=`<option value="${s}">${s}</option>`);
 }
 function resetFilters(){document.getElementById('search').value='';document.getElementById('f-do').value='';document.getElementById('f-sigungu').value='';document.getElementById('f-period').value='';document.getElementById('f-contract').value='';document.getElementById('f-insp').value='';setSort('');updateSigungu();applyFilters()}
-function setSort(mode){sortMode=sortMode===mode?'':mode;document.getElementById('sort-asc').classList.toggle('active',sortMode==='asc');document.getElementById('sort-desc').classList.toggle('active',sortMode==='desc');applyFilters()}
+function setSort(mode){sortMode=sortMode===mode?'':mode;['sort-asc','sort-desc','sort-insp-asc','sort-insp-desc'].forEach(id=>{const el=document.getElementById(id);if(el)el.classList.toggle('active',sortMode===id.replace('sort-',''))});applyFilters()}
 function applyFilters(){
   const q=document.getElementById('search').value.toLowerCase();const dv=document.getElementById('f-do').value;const sv=document.getElementById('f-sigungu').value;const pv=document.getElementById('f-period').value;const cv=document.getElementById('f-contract').value;const iv=document.getElementById('f-insp').value;
   filtered=locations.filter(l=>{
@@ -453,6 +470,8 @@ function applyFilters(){
   });
   if(sortMode==='asc')filtered.sort((a,b)=>(a.group||'').localeCompare(b.group||'','ko'));
   if(sortMode==='desc')filtered.sort((a,b)=>(b.group||'').localeCompare(a.group||'','ko'));
+  if(sortMode==='insp-asc')filtered.sort((a,b)=>{const da=getLatestInspDate(a).date;const db=getLatestInspDate(b).date;if(!da&&!db)return 0;if(!da)return 1;if(!db)return -1;return da-db;});
+  if(sortMode==='insp-desc')filtered.sort((a,b)=>{const da=getLatestInspDate(a).date;const db=getLatestInspDate(b).date;if(!da&&!db)return 0;if(!da)return 1;if(!db)return -1;return db-da;});
   renderGrid();
   const cc=filtered.reduce((s,l)=>s+l.contracts.length,0);
   document.getElementById('hd-count').textContent=`총 ${filtered.length}개 국소 · ${cc}개 계약`;
@@ -479,7 +498,7 @@ function renderGrid(){
   let html='';let lastPrefix=null;
   filtered.forEach((l,li)=>{
     // 정렬 활성화 시: 알파벳이 바뀌면 구분선 삽입
-    if(sortMode){
+    if(sortMode==='asc'||sortMode==='desc'){
       const p=groupPrefix(l.group);
       if(p!==lastPrefix){
         html+=`<div class="group-divider"><span class="group-divider-badge">${p||'?'}</span><div class="group-divider-line"></div></div>`;
@@ -498,6 +517,7 @@ function renderGrid(){
       const ci_=getInspectionStatus(c.inspection);
       if(inspPriority.indexOf(ci_.cls)<inspPriority.indexOf(groupInsp.cls)){groupInsp=ci_;}
     }
+    const inspDate=getLatestInspDate(l);
     const subRows=l.contracts.map((c,ci)=>{
       const ym=daysToYM(c.daysLeft);
       const cinsp=getInspectionStatus(c.inspection);
@@ -529,6 +549,7 @@ function renderGrid(){
         <div class="group-hd-sub">
           <span style="font-size:11px;color:var(--text3)">${addr}</span>
           <span class="insp-badge ${groupInsp.cls}">${groupInsp.label}</span>
+          ${inspDate.str?`<span style="font-size:10px;color:var(--text3)">점검 ${inspDate.str}</span>`:''}
         </div>
       </div>
       <div>${subRows}</div>
@@ -540,6 +561,7 @@ function renderGrid(){
 function renderSingle(l,li,ci){
   const ok=isOk(l.hasContract);const addr=addrShort(l);const ym=daysToYM(l.daysLeft);
   const insp=getInspectionStatus(l.inspection);
+  const inspDate=getLatestInspDate(l);
   // 2) 그룹코드 카드에 표시
   return`<div class="card single" onclick="openDetail(${li},${ci})">
     <div class="c-bar ${l.urgency}"></div>
@@ -565,7 +587,7 @@ function renderSingle(l,li,ci){
       ${l.endDate?`<div class="c-end">만료: ${l.endDate}</div>`:''}
       <div class="c-foot">
         <div class="c-charger">충전기 <span>${l.total||'-'}</span>기</div>
-        ${l.note?`<div class="c-note">${l.note}</div>`:''}
+        ${inspDate.str?`<div class="c-note" style="color:var(--text2)">점검 ${inspDate.str}</div>`:l.note?`<div class="c-note">${l.note}</div>`:''}
       </div>
     </div>
   </div>`;
