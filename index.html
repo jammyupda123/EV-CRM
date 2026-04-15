@@ -50,6 +50,10 @@
   .filter-bar select option{background:var(--surface);color:var(--text)}
   .reset-btn{border:1px solid var(--border);background:var(--surface);color:var(--text2);border-radius:var(--rs);padding:6px 12px;font-size:12px;cursor:pointer;font-family:'Pretendard',sans-serif;font-weight:500}
   .reset-btn:hover{background:var(--surface2)}
+  .insp-filters{display:flex;gap:4px;align-items:center;flex-wrap:wrap}
+  .insp-chip{font-size:11px;font-weight:600;padding:4px 10px;border-radius:20px;border:1px solid var(--border);background:var(--surface);color:var(--text2);cursor:pointer;transition:all .15s;user-select:none;white-space:nowrap}
+  .insp-chip:hover{background:var(--surface2)}
+  .insp-chip.on{background:var(--accent-bg);color:var(--accent);border-color:var(--accent)}
   .sort-btn{border:1px solid var(--border);background:var(--surface);color:var(--text2);border-radius:var(--rs);padding:6px 10px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:4px;font-weight:500}
   .sort-btn:hover{background:var(--surface2)}
   .sort-btn.active{border-color:var(--accent);color:var(--accent);background:var(--accent-bg)}
@@ -217,17 +221,14 @@
       <option value="Y">계약서 있음</option>
       <option value="N">계약서 없음</option>
     </select>
-    <select id="f-insp" onchange="applyFilters()">
-      <option value="">점검여부 전체</option>
-      <option value="not-done">미점검</option>
-      <option value="done-h1">상반기점검완료</option>
-      <option value="done-h2">하반기점검완료</option>
-      <option value="done-text">점검완료</option>
-    </select>
+    <div class="insp-filters" id="insp-filters">
+      <span class="insp-chip" data-val="not-done" onclick="toggleInsp(this)">미점검</span>
+      <span class="insp-chip" data-val="done-h1" onclick="toggleInsp(this)">상반기</span>
+      <span class="insp-chip" data-val="done-h2" onclick="toggleInsp(this)">하반기</span>
+      <span class="insp-chip" data-val="done-text" onclick="toggleInsp(this)">점검완료</span>
+    </div>
     <button type="button" id="sort-asc" class="sort-btn" onclick="setSort('asc')">그룹 ↑</button>
     <button type="button" id="sort-desc" class="sort-btn" onclick="setSort('desc')">그룹 ↓</button>
-    <button type="button" id="sort-insp-asc" class="sort-btn" onclick="setSort('insp-asc')">점검일 ↑</button>
-    <button type="button" id="sort-insp-desc" class="sort-btn" onclick="setSort('insp-desc')">점검일 ↓</button>
     <button type="button" class="reset-btn" onclick="resetFilters()">초기화</button>
   </div>
   <div class="main">
@@ -473,10 +474,13 @@ function updateSigungu(){
   const sel=document.getElementById('f-sigungu');sel.innerHTML='<option value="">전체 시구군</option>';
   sigs.forEach(s=>sel.innerHTML+=`<option value="${s}">${s}</option>`);
 }
-function resetFilters(){document.getElementById('search').value='';document.getElementById('f-do').value='';document.getElementById('f-sigungu').value='';document.getElementById('f-period').value='';document.getElementById('f-contract').value='';document.getElementById('f-insp').value='';setSort('');updateSigungu();applyFilters()}
-function setSort(mode){sortMode=sortMode===mode?'':mode;['sort-asc','sort-desc','sort-insp-asc','sort-insp-desc'].forEach(id=>{const el=document.getElementById(id);if(el)el.classList.toggle('active',sortMode===id.replace('sort-',''))});applyFilters()}
+function resetFilters(){document.getElementById('search').value='';document.getElementById('f-do').value='';document.getElementById('f-sigungu').value='';document.getElementById('f-period').value='';document.getElementById('f-contract').value='';document.querySelectorAll('.insp-chip').forEach(c=>c.classList.remove('on'));setSort('');updateSigungu();applyFilters()}
+
+function toggleInsp(el){el.classList.toggle('on');applyFilters();}
+function getSelectedInsp(){return[...document.querySelectorAll('.insp-chip.on')].map(c=>c.dataset.val);}
+function setSort(mode){sortMode=sortMode===mode?'':mode;document.getElementById('sort-asc').classList.toggle('active',sortMode==='asc');document.getElementById('sort-desc').classList.toggle('active',sortMode==='desc');applyFilters()}
 function applyFilters(){
-  const q=document.getElementById('search').value.toLowerCase();const dv=document.getElementById('f-do').value;const sv=document.getElementById('f-sigungu').value;const pv=document.getElementById('f-period').value;const cv=document.getElementById('f-contract').value;const iv=document.getElementById('f-insp').value;
+  const q=document.getElementById('search').value.toLowerCase();const dv=document.getElementById('f-do').value;const sv=document.getElementById('f-sigungu').value;const pv=document.getElementById('f-period').value;const cv=document.getElementById('f-contract').value;const ivs=getSelectedInsp();
   filtered=locations.filter(l=>{
     if(q&&![l.name,l.sid,l.address].join(' ').toLowerCase().includes(q))return false;
     if(dv&&l.do_!==dv)return false;if(sv&&l.sigungu!==sv)return false;
@@ -485,19 +489,17 @@ function applyFilters(){
       if(!urgIncl[pv]||!urgIncl[pv].includes(l.urgency))return false;
     }
     if(cv){const ok=isOk(l.hasContract);if(cv==='Y'&&!ok)return false;if(cv==='N'&&ok)return false;}
-    if(iv){
+    if(ivs.length>0){
       // 다중계약: 1개라도 점검완료면 해당 국소 점검완료
       const inspP=['done-h2','done-h1','done-text','not-done'];
       let bestInsp={cls:'not-done',label:'미점검'};
       for(const c of l.contracts){const ci_=getInspectionStatus(c.inspection);if(inspP.indexOf(ci_.cls)<inspP.indexOf(bestInsp.cls))bestInsp=ci_;}
-      if(bestInsp.cls!==iv)return false;
+      if(!ivs.includes(bestInsp.cls))return false;
     }
     return true;
   });
   if(sortMode==='asc')filtered.sort((a,b)=>(a.group||'').localeCompare(b.group||'','ko'));
   if(sortMode==='desc')filtered.sort((a,b)=>(b.group||'').localeCompare(a.group||'','ko'));
-  if(sortMode==='insp-asc')filtered.sort((a,b)=>{const g=groupPrefix(a.group).localeCompare(groupPrefix(b.group),'ko');if(g!==0)return g;const da=getLatestInspDate(a).date;const db=getLatestInspDate(b).date;if(!da&&!db)return 0;if(!da)return 1;if(!db)return -1;return da-db;});
-  if(sortMode==='insp-desc')filtered.sort((a,b)=>{const g=groupPrefix(a.group).localeCompare(groupPrefix(b.group),'ko');if(g!==0)return g;const da=getLatestInspDate(a).date;const db=getLatestInspDate(b).date;if(!da&&!db)return 0;if(!da)return 1;if(!db)return -1;return db-da;});
   renderGrid();
   const cc=filtered.reduce((s,l)=>s+l.contracts.length,0);
   document.getElementById('hd-count').textContent=`총 ${filtered.length}개 국소 · ${cc}개 계약`;
