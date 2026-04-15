@@ -277,8 +277,8 @@ function applyModifications(mods){
     const best=loc.contracts.reduce((a,b)=>{
       if(a.daysLeft===null&&b.daysLeft!==null)return b;
       if(b.daysLeft===null)return a;
-      if(a.daysLeft>=0&&b.daysLeft>=0)return a.daysLeft>b.daysLeft?a:b;
-      if(a.daysLeft>=0)return a;
+      if(a.daysLeft>=0&&b.daysLeft>=0)return a.daysLeft<b.daysLeft?a:b;
+      if(b.daysLeft>=0)return b;
       return a;
     });
     const saved=loc.contracts;
@@ -408,7 +408,7 @@ function processRows(allRows){
   locations=Array.from(map.values()).map(recs=>{
     const rep=recs.reduce((a,b)=>{
       if(a.daysLeft===null&&b.daysLeft!==null)return b;if(b.daysLeft===null)return a;
-      if(a.daysLeft>=0&&b.daysLeft>=0)return a.daysLeft>b.daysLeft?a:b;if(a.daysLeft>=0)return a;return a;
+      if(a.daysLeft>=0&&b.daysLeft>=0)return a.daysLeft<b.daysLeft?a:b;if(b.daysLeft>=0)return b;return a;
     });
     return{...rep,contracts:recs};
   });
@@ -621,8 +621,8 @@ function saveEdits(){
   const best=saved.reduce((a,b)=>{
     if(a.daysLeft===null&&b.daysLeft!==null)return b;
     if(b.daysLeft===null)return a;
-    if(a.daysLeft>=0&&b.daysLeft>=0)return a.daysLeft>b.daysLeft?a:b;
-    if(a.daysLeft>=0)return a;
+    if(a.daysLeft>=0&&b.daysLeft>=0)return a.daysLeft<b.daysLeft?a:b;
+    if(b.daysLeft>=0)return b;
     return a;
   });
   Object.assign(l,best);l.contracts=saved;
@@ -646,8 +646,8 @@ function restoreRecord(){
     const best=restored.reduce((a,b)=>{
       if(a.daysLeft===null&&b.daysLeft!==null)return b;
       if(b.daysLeft===null)return a;
-      if(a.daysLeft>=0&&b.daysLeft>=0)return a.daysLeft>b.daysLeft?a:b;
-      if(a.daysLeft>=0)return a;
+      if(a.daysLeft>=0&&b.daysLeft>=0)return a.daysLeft<b.daysLeft?a:b;
+      if(b.daysLeft>=0)return b;
       return a;
     });
     Object.assign(l,best);l.contracts=restored;
