@@ -60,6 +60,21 @@
   .main{padding:1.25rem 1.5rem}
   .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
   @media(max-width:700px){.grid{grid-template-columns:repeat(2,1fr);gap:8px}.c-foot{flex-direction:column;align-items:flex-start;justify-content:flex-start;gap:2px}.c-charger{white-space:nowrap;text-align:left;width:100%}.c-note{max-width:100%;text-align:left;white-space:normal;width:100%}.c-top{flex-direction:column-reverse;gap:3px;align-items:flex-start}.c-name{text-align:left;width:100%}.c-chips{justify-content:flex-start}.c-addr{text-align:left}
+    .group-hd{padding:8px 10px 6px 14px}
+    .card.multi{min-width:0;overflow:hidden}
+    .card.multi .c-inner{padding-left:8px}
+    .group-cnt{font-size:9px;padding:1px 5px}
+    .chip-group,.chip-grade{font-size:9px;padding:1px 5px}
+    .sub-row{padding:6px 10px 6px 14px}
+    .sub-inner{padding-left:6px}
+    .sub-top{flex-wrap:wrap;gap:2px}
+    .sub-label{font-size:11px}
+    .sub-rem{font-size:10px}
+    .sub-ym{font-size:9px}
+    .sub-period{font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .sub-meta{font-size:9px;line-height:1.6}
+    .multi-note{padding:6px 10px 8px 14px}
+    .multi-note-text{font-size:10px;-webkit-line-clamp:2}
     .logo{font-size:13px;gap:6px}.logo-dot{width:18px;height:18px;font-size:8px}
     .hd-right{gap:4px}.hd-count{display:none}
     .reload-btn{padding:6px;font-size:0;width:32px;height:32px;justify-content:center;overflow:hidden}
@@ -82,6 +97,7 @@
   .group-name{font-size:13px;font-weight:700;color:var(--text);flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
   .group-cnt{font-size:10px;font-weight:700;padding:1px 6px;border-radius:20px;background:var(--orange-bg);color:var(--orange);flex-shrink:0;white-space:nowrap}
   .group-hd-sub{display:flex;align-items:center;gap:5px;flex-wrap:nowrap}
+  .group-addr{font-size:11px;color:var(--text3);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;min-width:0;flex-shrink:1}
   .sub-row{padding:.65rem 1rem .6rem 1.35rem;border-bottom:1px solid var(--border);position:relative;cursor:pointer;transition:background .12s}
   .sub-row:last-child{border-bottom:none}
   .sub-row:hover{background:var(--surface2)}
@@ -545,6 +561,7 @@ function renderGrid(){
       const ci_=getInspectionStatus(c.inspection);
       if(inspPriority.indexOf(ci_.cls)<inspPriority.indexOf(groupInsp.cls)){groupInsp=ci_;}
     }
+    const ok=isOk(l.hasContract);
     const inspDate=getLatestInspDate(l);
     const subRows=l.contracts.map((c,ci)=>{
       const ym=daysToYM(c.daysLeft);
@@ -566,18 +583,23 @@ function renderGrid(){
     }).join('');
     html+=`<div class="card multi">
       <div class="c-bar ${topUrg}" style="border-radius:var(--r) 0 0 var(--r)"></div>
-      <div class="group-hd" style="padding-left:1.35rem">
-        <div class="group-hd-top">
-          <div class="group-name">${l.name}</div>
-          ${l.group?`<span class="chip-group">${l.group}</span>`:''}
-          ${l.grade?`<span class="chip-grade">등급 ${l.grade}</span>`:''}
-          <span class="chip-grade">충전기 ${l.contracts.reduce((s,c)=>s+(parseInt(c.total)||0),0)}기</span>
-          <span class="group-cnt">계약 ${l.contracts.length}건</span>
-        </div>
-        <div class="group-hd-sub">
-          <span style="font-size:11px;color:var(--text3)">${addr}</span>
-          <span class="insp-badge ${groupInsp.cls}">${groupInsp.label}</span>
-          ${inspDate.str?`<span style="font-size:10px;color:var(--text3)">점검 ${inspDate.str}</span>`:''}
+      <div class="group-hd">
+        <div class="c-inner">
+          <div class="c-top">
+            <div class="c-name">${l.name}</div>
+            <div class="c-chips">
+              ${l.group?`<span class="chip-group">${l.group}</span>`:''}
+              ${l.grade?`<span class="chip-grade">등급 ${l.grade}</span>`:''}
+              <span class="chip-grade">충전기 ${l.contracts.reduce((s,c)=>s+(parseInt(c.total)||0),0)}기</span>
+            </div>
+          </div>
+          <div class="c-addr">${addr}</div>
+          <div class="c-tags">
+            <span class="tag ${ok?'ok':'no'}">${ok?'계약서 ✓':'계약서 없음'}</span>
+            ${l.type_?`<span class="tag">${l.type_}</span>`:''}
+            <span class="insp-badge ${groupInsp.cls}">${groupInsp.label}</span>
+            ${inspDate.str?`<span style="font-size:10px;color:var(--text3)">점검 ${inspDate.str}</span>`:''}
+          </div>
         </div>
       </div>
       <div>${subRows}</div>
