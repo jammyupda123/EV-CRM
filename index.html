@@ -7,6 +7,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;500;600;700&display=swap');
@@ -262,11 +263,17 @@ const firebaseConfig={
   projectId:"tesla-crm-31920"
 };
 firebase.initializeApp(firebaseConfig);
+const fbAuth=firebase.auth();
 const fbDB=firebase.database();
 const fbRef=fbDB.ref('modifications');
 
+// 익명 인증 (보안 규칙 적용을 위해)
+let fbReady=false;
+fbAuth.signInAnonymously().then(()=>{fbReady=true;}).catch(e=>console.warn('Firebase auth:',e));
+
 // Firebase에 수정사항 저장
 function fbSave(rowIdx, fields){
+  if(!fbAuth.currentUser){fbAuth.signInAnonymously().then(()=>fbRef.child(String(rowIdx)).update(fields)).catch(()=>{});return;}
   fbRef.child(String(rowIdx)).update(fields);
 }
 
