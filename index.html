@@ -870,6 +870,26 @@ function renderPanel(){
 async function downloadFile(){
   if(!origFileBuffer){alert('업로드된 파일이 없습니다.');return;}
 
+  // Firebase 최신 수정사항을 현재 locations에 반영
+  try{
+    if(!fbAuth.currentUser) await fbAuth.signInAnonymously();
+    const snap=await fbRef.once('value');
+    const mods=snap.val()||{};
+    if(Object.keys(mods).length){
+      locations.forEach(loc=>{
+        loc.contracts.forEach(contract=>{
+          const ri=String(contract._rowIdx);
+          if(mods[ri]){
+            Object.entries(mods[ri]).forEach(([field,val])=>{
+              contract[field]=val;
+              if(field in loc) loc[field]=val;
+            });
+          }
+        });
+      });
+    }
+  }catch(e){console.warn('Firebase 동기화 실패, 현재 메모리 데이터로 다운로드:',e);}
+
   const FCOLS={
     name:C.name+1,group:C.group+1,type_:C.type_+1,
     do_:C.do_+1,sigungu:C.sigungu+1,address:C.address+1,
@@ -1112,15 +1132,16 @@ function loadFromBuffer(buf){
 (function autoRestore(){
   // 1) 내장 데이터로 먼저 화면 표시
   loadFromBuffer(b64ToArrayBuffer(EMBEDDED_XLSX));
-  // 2) Firebase에서 수정사항 가져와서 적용
-  let initialLoaded=false;
-  fbRef.on('value', snap=>{
-    const mods=snap.val()||{};
-    // 내장 데이터 다시 로드 후 수정사항 적용
-    loadFromBuffer(b64ToArrayBuffer(EMBEDDED_XLSX));
-    applyModifications(mods);
-    initialLoaded=true;
-  });
+  // 2) Firebase 리스너 설정 (인증 성공 여부와 무관하게 시도)
+  function startListener(){
+    fbRef.on('value', snap=>{
+      const mods=snap.val()||{};
+      loadFromBuffer(b64ToArrayBuffer(EMBEDDED_XLSX));
+      applyModifications(mods);
+    }, err=>{console.warn('Firebase read error:',err);});
+  }
+  // 익명 인증 후 리스너 시작, 실패 시에도 리스너 시작 (공개 규칙 대비)
+  fbAuth.signInAnonymously().then(()=>startListener()).catch(()=>startListener());
 })();
 
 </script>
