@@ -121,7 +121,7 @@
   #changes-overlay{display:none;position:fixed;inset:0;background:var(--overlay-bg);z-index:200;align-items:stretch;justify-content:flex-end;backdrop-filter:blur(4px)}
   #changes-overlay.open{display:flex}
   #changes-panel{width:min(720px,100vw);background:var(--surface);overflow-y:auto;height:100vh;box-shadow:-4px 0 32px rgba(0,0,0,.2)}
-  .ch-hd{padding:1rem 1.5rem;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:10;display:flex;align-items:center;gap:12px}
+  .ch-hd{padding:1rem 1.5rem;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:10;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
   .ch-title{flex:1;font-size:16px;font-weight:700}
   .ch-body{padding:1rem 1.5rem}
   .ch-item{background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);padding:.75rem 1rem;margin-bottom:8px}
@@ -296,8 +296,9 @@ const fbRef=fbDB.ref('modifications');
 let fbReady=false;
 fbAuth.signInAnonymously().then(()=>{fbReady=true;}).catch(e=>console.warn('Firebase auth:',e));
 
-// Firebase에 수정사항 저장
+// Firebase에 수정사항 저장 (타임스탬프 포함)
 function fbSave(rowIdx, fields){
+  fields._modifiedAt=new Date().toISOString();
   if(!fbAuth.currentUser){fbAuth.signInAnonymously().then(()=>fbRef.child(String(rowIdx)).update(fields)).catch(()=>{});return;}
   fbRef.child(String(rowIdx)).update(fields);
 }
@@ -1110,59 +1111,81 @@ function closeDetail(){
 // ── 변경사항 패널 ──
 const fieldLabels={name:'충전소명',group:'그룹',type_:'충전소유형',do_:'도/지역',sigungu:'시구군',address:'주소',installType:'설치유형',grade:'국소등급',hasContract:'계약서유무',total:'충전기수',startDate:'계약시작일',period:'계약기간',endDate:'계약종료일',subsidyType:'보조금유형',subsidyObl:'의무기간',subsidyBase:'보조금기준',subsidyStart:'보조금시작',subsidyEnd:'보조금종료',revenue:'매출추이',inspection:'점검일자',inspector:'점검자',ownCharger:'당사충전기',installPos:'설치위치',ownPrice:'당사요금',ownParking:'병행주차',competitor:'타CPO',competitorPos:'타사위치',competitorQty:'타사수량',cpoPrice:'타사요금',cpoParking:'타사주차',note:'특이사항'};
 
+let _chMods=null; // 캐시된 Firebase 수정사항
+
 async function showChanges(){
   const chOverlay=document.getElementById('changes-overlay');
-  const chPanel=document.getElementById('changes-panel');
-  let mods={};
   try{
     if(!fbAuth.currentUser) await fbAuth.signInAnonymously();
     const snap=await fbRef.once('value');
-    mods=snap.val()||{};
-  }catch(e){console.warn('Firebase 로드 실패:',e);}
+    _chMods=snap.val()||{};
+  }catch(e){console.warn('Firebase 로드 실패:',e);_chMods=_chMods||{};}
+  renderChanges();
+  chOverlay.classList.add('open');
+  document.body.style.overflow='hidden';
+}
 
-  // 원본 엑셀 데이터 재파싱하여 rowIdx → 원본값 맵 생성
+function renderChanges(dateFrom){
+  const chPanel=document.getElementById('changes-panel');
+  const mods=_chMods||{};
+  if(!dateFrom) dateFrom=document.getElementById('ch-date-from')?.value||'2026-04-20';
+
+  // 원본 엑셀 데이터 재파싱
   const origWb=XLSX.read(b64ToArrayBuffer(EMBEDDED_XLSX),{type:'array',cellDates:true});
   const origWs=origWb.Sheets[origWb.SheetNames[0]];
   const origRows=XLSX.utils.sheet_to_json(origWs,{header:1,defval:null});
   const fieldToCols={name:C.name,group:C.group,type_:C.type_,do_:C.do_,sigungu:C.sigungu,address:C.address,installType:C.installType,grade:C.grade,hasContract:C.contract,total:C.total,startDate:C.startDate,period:C.period,endDate:C.endDate,subsidyType:C.subsidyType,subsidyObl:C.subsidyObl,subsidyBase:C.subsidyBase,subsidyStart:C.subsidyStart,subsidyEnd:C.subsidyEnd,revenue:C.revenue,inspection:C.inspection,inspector:C.inspector,ownCharger:C.ownCharger,installPos:C.installPos,ownPrice:C.ownPrice,ownParking:C.ownParking,competitor:C.competitor,competitorPos:C.competitorPos,competitorQty:C.competitorQty,cpoPrice:C.cpoPrice,cpoParking:C.cpoParking,note:C.note};
   function getOrigVal(rowIdx,field){
-    const col=fieldToCols[field];
-    if(col===undefined)return '';
-    const row=origRows[rowIdx];
-    if(!row)return '';
-    let v=row[col];
-    if(v===null||v===undefined)return '';
+    const col=fieldToCols[field];if(col===undefined)return '';
+    const row=origRows[rowIdx];if(!row)return '';
+    let v=row[col];if(v===null||v===undefined)return '';
     if(v instanceof Date&&!isNaN(v)){const d=new Date(v.getTime()+12*3600000);return d.getUTCFullYear()+'.'+String(d.getUTCMonth()+1).padStart(2,'0')+'.'+String(d.getUTCDate()).padStart(2,'0');}
     return String(v).trim();
   }
 
-  // rowIdx → location/contract 매핑, 실제 변경된 필드만 추출
+  // 날짜 필터 기준
+  const fromDate=dateFrom?dateFrom+'T00:00:00.000Z':null;
+
+  // 변경된 항목 수집
   const items=[];
   locations.forEach(loc=>{
     loc.contracts.forEach(contract=>{
       const ri=String(contract._rowIdx);
       if(!mods[ri])return;
+      const modAt=mods[ri]._modifiedAt||'';
+      if(fromDate&&modAt&&modAt<fromDate)return; // 날짜 이전이면 스킵
       const changes=[];
       Object.entries(mods[ri]).forEach(([k,v])=>{
+        if(k==='_modifiedAt')return;
         if(!fieldLabels[k])return;
         const newVal=String(v??'').trim();
         const origVal=getOrigVal(contract._rowIdx,k);
-        if(newVal===origVal)return; // 실제 변경 없으면 스킵
+        if(newVal===origVal)return;
         changes.push({field:k,label:fieldLabels[k],oldVal:origVal,newVal:newVal});
       });
-      if(changes.length)items.push({name:loc.name,group:loc.group,contractIdx:loc.contracts.indexOf(contract)+1,totalContracts:loc.contracts.length,changes});
+      if(changes.length)items.push({name:loc.name,group:loc.group,contractIdx:loc.contracts.indexOf(contract)+1,totalContracts:loc.contracts.length,modAt:modAt?modAt.slice(0,10):'',changes});
     });
   });
 
+  const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  // 헤더 (날짜 필터 포함)
+  let html=`<div class="ch-hd">
+    <div class="ch-title">변경사항</div>
+    <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+      <label style="font-size:11px;color:var(--text2);white-space:nowrap">이후 변경:</label>
+      <input type="date" id="ch-date-from" value="${dateFrom||''}" onchange="renderChanges(this.value)" style="font-size:12px;padding:4px 6px;border:1px solid var(--border);border-radius:var(--rs);background:var(--surface);color:var(--text)">
+    </div>
+    <div class="p-close" onclick="closeChanges()"><svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div>
+  </div>`;
+
   if(!items.length){
-    chPanel.innerHTML=`<div class="ch-hd"><div class="ch-title">변경사항</div><div class="p-close" onclick="closeChanges()"><svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div></div><div class="ch-body"><div class="empty">변경된 내용이 없습니다</div></div>`;
+    html+=`<div class="ch-body"><div class="empty">해당 기간에 변경된 내용이 없습니다</div></div>`;
   }else{
     const totalChanges=items.reduce((s,it)=>s+it.changes.length,0);
-    let html=`<div class="ch-hd"><div class="ch-title">변경사항 (${items.length}개 국소 · ${totalChanges}개 항목)</div><div class="p-close" onclick="closeChanges()"><svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div></div><div class="ch-body">`;
+    html+=`<div style="padding:6px 1.5rem;font-size:12px;color:var(--text2);border-bottom:1px solid var(--border)">${items.length}개 국소 · ${totalChanges}개 항목 변경</div><div class="ch-body">`;
     items.forEach(it=>{
-      html+=`<div class="ch-item"><div class="ch-item-hd"><span class="ch-item-name">${it.name}${it.totalContracts>1?' (계약'+it.contractIdx+')':''}</span><span class="ch-item-group">${it.group||''}</span></div>`;
+      html+=`<div class="ch-item"><div class="ch-item-hd"><span class="ch-item-name">${esc(it.name)}${it.totalContracts>1?' (계약'+it.contractIdx+')':''}</span><span class="ch-item-group">${esc(it.group||'')}${it.modAt?' · 수정 '+it.modAt:''}</span></div>`;
       it.changes.forEach(c=>{
-        const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
         const oldDisp=c.oldVal?esc(c.oldVal.length>80?c.oldVal.substring(0,80)+'...':c.oldVal):'(없음)';
         const newDisp=c.newVal?esc(c.newVal.length>80?c.newVal.substring(0,80)+'...':c.newVal):'(삭제)';
         html+=`<div class="ch-field"><span class="ch-field-name">${c.label}</span><div class="ch-field-val"><span class="ch-old">${oldDisp}</span><span class="ch-arrow">→</span><span class="ch-new">${newDisp}</span></div></div>`;
@@ -1170,10 +1193,8 @@ async function showChanges(){
       html+=`</div>`;
     });
     html+=`</div>`;
-    chPanel.innerHTML=html;
   }
-  chOverlay.classList.add('open');
-  document.body.style.overflow='hidden';
+  chPanel.innerHTML=html;
 }
 function closeChanges(){
   document.getElementById('changes-overlay').classList.remove('open');
