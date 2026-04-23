@@ -128,10 +128,13 @@
   .ch-item-hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
   .ch-item-name{font-size:13px;font-weight:700;color:var(--text)}
   .ch-item-group{font-size:11px;color:var(--accent);font-weight:600}
-  .ch-field{display:flex;gap:8px;font-size:12px;padding:3px 0;border-bottom:1px solid var(--border)}
+  .ch-field{display:flex;gap:8px;font-size:12px;padding:5px 0;border-bottom:1px solid var(--border);align-items:flex-start}
   .ch-field:last-child{border-bottom:none}
   .ch-field-name{color:var(--text3);min-width:80px;flex-shrink:0;font-weight:600}
-  .ch-field-val{color:var(--text);word-break:break-word;flex:1}
+  .ch-field-val{color:var(--text);word-break:break-word;flex:1;display:flex;align-items:flex-start;flex-wrap:wrap;gap:2px}
+  .ch-old{color:var(--danger);text-decoration:line-through;font-size:11px;opacity:.7;word-break:break-word}
+  .ch-arrow{color:var(--text3);font-size:11px;flex-shrink:0}
+  .ch-new{color:var(--success);font-weight:600;font-size:12px;word-break:break-word}
   .c-inner{padding-left:8px}
   .c-top{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:4px}
   .c-name{font-weight:700;font-size:14px;line-height:1.4;flex:1;color:var(--text);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;min-width:0}
@@ -1117,30 +1120,52 @@ async function showChanges(){
     mods=snap.val()||{};
   }catch(e){console.warn('Firebase 로드 실패:',e);}
 
-  // rowIdx → location/contract 매핑
+  // 원본 엑셀 데이터 재파싱하여 rowIdx → 원본값 맵 생성
+  const origWb=XLSX.read(b64ToArrayBuffer(EMBEDDED_XLSX),{type:'array',cellDates:true});
+  const origWs=origWb.Sheets[origWb.SheetNames[0]];
+  const origRows=XLSX.utils.sheet_to_json(origWs,{header:1,defval:null});
+  const fieldToCols={name:C.name,group:C.group,type_:C.type_,do_:C.do_,sigungu:C.sigungu,address:C.address,installType:C.installType,grade:C.grade,hasContract:C.contract,total:C.total,startDate:C.startDate,period:C.period,endDate:C.endDate,subsidyType:C.subsidyType,subsidyObl:C.subsidyObl,subsidyBase:C.subsidyBase,subsidyStart:C.subsidyStart,subsidyEnd:C.subsidyEnd,revenue:C.revenue,inspection:C.inspection,inspector:C.inspector,ownCharger:C.ownCharger,installPos:C.installPos,ownPrice:C.ownPrice,ownParking:C.ownParking,competitor:C.competitor,competitorPos:C.competitorPos,competitorQty:C.competitorQty,cpoPrice:C.cpoPrice,cpoParking:C.cpoParking,note:C.note};
+  function getOrigVal(rowIdx,field){
+    const col=fieldToCols[field];
+    if(col===undefined)return '';
+    const row=origRows[rowIdx];
+    if(!row)return '';
+    let v=row[col];
+    if(v===null||v===undefined)return '';
+    if(v instanceof Date&&!isNaN(v)){const d=new Date(v.getTime()+12*3600000);return d.getUTCFullYear()+'.'+String(d.getUTCMonth()+1).padStart(2,'0')+'.'+String(d.getUTCDate()).padStart(2,'0');}
+    return String(v).trim();
+  }
+
+  // rowIdx → location/contract 매핑, 실제 변경된 필드만 추출
   const items=[];
-  const seen=new Set();
   locations.forEach(loc=>{
     loc.contracts.forEach(contract=>{
       const ri=String(contract._rowIdx);
       if(!mods[ri])return;
-      const key=loc.sid||loc.name;
-      const fields=mods[ri];
-      items.push({name:loc.name,group:loc.group,sid:loc.sid,contractIdx:loc.contracts.indexOf(contract)+1,totalContracts:loc.contracts.length,fields});
+      const changes=[];
+      Object.entries(mods[ri]).forEach(([k,v])=>{
+        if(!fieldLabels[k])return;
+        const newVal=String(v??'').trim();
+        const origVal=getOrigVal(contract._rowIdx,k);
+        if(newVal===origVal)return; // 실제 변경 없으면 스킵
+        changes.push({field:k,label:fieldLabels[k],oldVal:origVal,newVal:newVal});
+      });
+      if(changes.length)items.push({name:loc.name,group:loc.group,contractIdx:loc.contracts.indexOf(contract)+1,totalContracts:loc.contracts.length,changes});
     });
   });
 
   if(!items.length){
     chPanel.innerHTML=`<div class="ch-hd"><div class="ch-title">변경사항</div><div class="p-close" onclick="closeChanges()"><svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div></div><div class="ch-body"><div class="empty">변경된 내용이 없습니다</div></div>`;
   }else{
-    let html=`<div class="ch-hd"><div class="ch-title">변경사항 (${items.length}건)</div><div class="p-close" onclick="closeChanges()"><svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div></div><div class="ch-body">`;
+    const totalChanges=items.reduce((s,it)=>s+it.changes.length,0);
+    let html=`<div class="ch-hd"><div class="ch-title">변경사항 (${items.length}개 국소 · ${totalChanges}개 항목)</div><div class="p-close" onclick="closeChanges()"><svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div></div><div class="ch-body">`;
     items.forEach(it=>{
       html+=`<div class="ch-item"><div class="ch-item-hd"><span class="ch-item-name">${it.name}${it.totalContracts>1?' (계약'+it.contractIdx+')':''}</span><span class="ch-item-group">${it.group||''}</span></div>`;
-      Object.entries(it.fields).forEach(([k,v])=>{
-        if(v===''||v===null||v===undefined)return;
-        const label=fieldLabels[k]||k;
-        const val=String(v).length>100?String(v).substring(0,100)+'...':String(v);
-        html+=`<div class="ch-field"><span class="ch-field-name">${label}</span><span class="ch-field-val">${val}</span></div>`;
+      it.changes.forEach(c=>{
+        const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        const oldDisp=c.oldVal?esc(c.oldVal.length>80?c.oldVal.substring(0,80)+'...':c.oldVal):'(없음)';
+        const newDisp=c.newVal?esc(c.newVal.length>80?c.newVal.substring(0,80)+'...':c.newVal):'(삭제)';
+        html+=`<div class="ch-field"><span class="ch-field-name">${c.label}</span><div class="ch-field-val"><span class="ch-old">${oldDisp}</span><span class="ch-arrow">→</span><span class="ch-new">${newDisp}</span></div></div>`;
       });
       html+=`</div>`;
     });
