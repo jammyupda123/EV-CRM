@@ -708,8 +708,16 @@ window.addEventListener('popstate',function(){
   }
 });
 
-function enterEdit(){pState.ed=true;renderPanel();}
-function cancelEdit(){pState.ed=false;renderPanel();}
+function enterEdit(){
+  // 편집 전 값 스냅샷 저장
+  const l=filtered[pState.li];
+  const contract=l.contracts[pState.ci]||l.contracts[0];
+  const editableFields=['name','group','type_','do_','sigungu','address','installType','grade','hasContract','total','startDate','period','endDate','subsidyType','subsidyObl','subsidyBase','subsidyStart','subsidyEnd','revenue','inspection','inspector','ownCharger','installPos','ownPrice','ownParking','competitor','competitorPos','competitorQty','cpoPrice','cpoParking','note'];
+  pState._beforeEdit={};
+  editableFields.forEach(f=>{pState._beforeEdit[f]=String(contract[f]??'');});
+  pState.ed=true;renderPanel();
+}
+function cancelEdit(){pState.ed=false;pState._beforeEdit=null;renderPanel();}
 
 function saveEdits(){
   const {li,ci}=pState;
@@ -743,13 +751,14 @@ function saveEdits(){
     return a;
   });
   Object.assign(l,best);l.contracts=saved;
-  // Firebase에 수정사항 동기화 — 원본 대비 실제 변경된 필드만 저장
+  // Firebase에 수정사항 동기화 — 편집 전 스냅샷과 비교하여 실제 변경된 필드만 저장
   const editableFields=['name','group','type_','do_','sigungu','address','installType','grade','hasContract','total','startDate','period','endDate','subsidyType','subsidyObl','subsidyBase','subsidyStart','subsidyEnd','revenue','inspection','inspector','ownCharger','installPos','ownPrice','ownParking','competitor','competitorPos','competitorQty','cpoPrice','cpoParking','note'];
+  const before=pState._beforeEdit||{};
   const fbFields={};
   editableFields.forEach(f=>{
-    const cur=String(contract[f]??'').trim();
-    const orig=getOrigVal(contract._rowIdx,f);
-    if(cur!==orig) fbFields[f]=contract[f]??'';
+    const cur=String(contract[f]??'');
+    const prev=before[f]??'';
+    if(cur!==prev) fbFields[f]=contract[f]??'';
   });
   if(Object.keys(fbFields).length) fbSave(contract._rowIdx, fbFields);
 
@@ -758,17 +767,16 @@ function saveEdits(){
   if(l.contracts.length>1){
     l.contracts.forEach(other=>{
       if(other===contract)return;
-      sharedFields.forEach(f=>{other[f]=contract[f];});
       const ofb={};
-      editableFields.forEach(f=>{
-        const cur=String(other[f]??'').trim();
-        const orig=getOrigVal(other._rowIdx,f);
-        if(cur!==orig) ofb[f]=other[f]??'';
+      sharedFields.forEach(f=>{
+        const cur=String(contract[f]??'');
+        const prev=String(other[f]??'');
+        if(cur!==prev){other[f]=contract[f];ofb[f]=contract[f]??'';}
       });
       if(Object.keys(ofb).length) fbSave(other._rowIdx, ofb);
     });
   }
-  pState.ed=false;renderPanel();renderGrid();
+  pState.ed=false;pState._beforeEdit=null;renderPanel();renderGrid();
 }
 
 function restoreRecord(){
