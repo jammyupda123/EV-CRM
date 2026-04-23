@@ -293,11 +293,36 @@ const fbRef=fbDB.ref('modifications');
 let fbReady=false;
 fbAuth.signInAnonymously().then(()=>{fbReady=true;}).catch(e=>console.warn('Firebase auth:',e));
 
-// Firebase에 수정사항 저장 (타임스탬프 포함)
-function fbSave(rowIdx, fields){
-  fields._modifiedAt=new Date().toISOString();
-  if(!fbAuth.currentUser){fbAuth.signInAnonymously().then(()=>fbRef.child(String(rowIdx)).update(fields)).catch(()=>{});return;}
-  fbRef.child(String(rowIdx)).update(fields);
+// Firebase에 수정사항 저장 (타임스탬프 포함, 기존 불필요 필드 정리)
+async function fbSave(rowIdx, changedFields){
+  changedFields._modifiedAt=new Date().toISOString();
+  const ref=fbRef.child(String(rowIdx));
+  try{
+    if(!fbAuth.currentUser) await fbAuth.signInAnonymously();
+    // 기존 Firebase 데이터 읽기
+    const snap=await ref.once('value');
+    const existing=snap.val()||{};
+    // 기존 데이터에 새 변경사항 병합
+    const merged={...existing,...changedFields};
+    // 원본 엑셀과 동일한 값은 제거 (불필요한 필드 정리)
+    const cleaned={};
+    const norm=s=>String(s??'').replace(/\r\n/g,'\n').replace(/\s+/g,' ').trim();
+    Object.entries(merged).forEach(([k,v])=>{
+      if(k==='_modifiedAt'){cleaned[k]=v;return;}
+      if(!fieldLabels[k])return;
+      const orig=getOrigVal(rowIdx,k);
+      if(norm(v)!==norm(orig)) cleaned[k]=v;
+    });
+    if(Object.keys(cleaned).length<=1){
+      // _modifiedAt만 남으면 노드 삭제
+      ref.remove();
+    }else{
+      ref.set(cleaned);
+    }
+  }catch(e){
+    // 실패 시 fallback: update만
+    ref.update(changedFields);
+  }
 }
 
 // Firebase에서 수정사항 전체 로드
@@ -1173,6 +1198,7 @@ function renderChanges(dateFrom){
   const fromDate=dateFrom?dateFrom+'T00:00:00.000Z':null;
 
   // 변경된 항목 수집
+  function norm(s){return String(s??'').replace(/\r\n/g,'\n').replace(/\s+/g,' ').trim();}
   const items=[];
   locations.forEach(loc=>{
     loc.contracts.forEach(contract=>{
@@ -1185,9 +1211,9 @@ function renderChanges(dateFrom){
       Object.entries(mods[ri]).forEach(([k,v])=>{
         if(k==='_modifiedAt')return;
         if(!fieldLabels[k])return;
-        const newVal=String(v??'').trim();
+        const newVal=String(v??'');
         const origVal=getOrigVal(contract._rowIdx,k);
-        if(newVal===origVal)return;
+        if(norm(newVal)===norm(origVal))return;
         changes.push({field:k,label:fieldLabels[k],oldVal:origVal,newVal:newVal});
       });
       if(changes.length)items.push({name:loc.name,group:loc.group,contractIdx:loc.contracts.indexOf(contract)+1,totalContracts:loc.contracts.length,modAt:modAt?modAt.slice(0,10):'',changes});
