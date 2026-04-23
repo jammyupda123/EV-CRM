@@ -116,6 +116,22 @@
   .multi-note{padding:6px 1rem 8px 1.35rem;border-top:1px solid var(--border);font-size:11px;color:var(--text2);line-height:1.5}
   .multi-note-label{font-size:9px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px}
   .multi-note-text{white-space:pre-wrap;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical}
+  .insp-date-tag{font-size:11px;font-weight:600;padding:2px 7px;border-radius:4px;background:#eef6fb;color:#0369a1;border:1px solid #bae6fd;white-space:nowrap}
+  body.dark .insp-date-tag{background:rgba(3,105,161,0.15);color:#38bdf8;border-color:rgba(56,189,248,0.3)}
+  #changes-overlay{display:none;position:fixed;inset:0;background:var(--overlay-bg);z-index:200;align-items:stretch;justify-content:flex-end;backdrop-filter:blur(4px)}
+  #changes-overlay.open{display:flex}
+  #changes-panel{width:min(720px,100vw);background:var(--surface);overflow-y:auto;height:100vh;box-shadow:-4px 0 32px rgba(0,0,0,.2)}
+  .ch-hd{padding:1rem 1.5rem;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:10;display:flex;align-items:center;gap:12px}
+  .ch-title{flex:1;font-size:16px;font-weight:700}
+  .ch-body{padding:1rem 1.5rem}
+  .ch-item{background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);padding:.75rem 1rem;margin-bottom:8px}
+  .ch-item-hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+  .ch-item-name{font-size:13px;font-weight:700;color:var(--text)}
+  .ch-item-group{font-size:11px;color:var(--accent);font-weight:600}
+  .ch-field{display:flex;gap:8px;font-size:12px;padding:3px 0;border-bottom:1px solid var(--border)}
+  .ch-field:last-child{border-bottom:none}
+  .ch-field-name{color:var(--text3);min-width:80px;flex-shrink:0;font-weight:600}
+  .ch-field-val{color:var(--text);word-break:break-word;flex:1}
   .c-inner{padding-left:8px}
   .c-top{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:4px}
   .c-name{font-weight:700;font-size:14px;line-height:1.4;flex:1;color:var(--text);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;min-width:0}
@@ -212,6 +228,9 @@
       <button type="button" class="reload-btn" onclick="toggleDark()" id="dark-toggle" title="다크/라이트 모드">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg><span id="dark-label">다크</span>
       </button>
+      <button type="button" class="reload-btn" onclick="showChanges()">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>변경사항
+      </button>
       <button type="button" class="reload-btn" onclick="downloadFile()">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>엑셀 다운로드
       </button>
@@ -244,6 +263,8 @@
       <span class="insp-chip" data-val="done-h2" onclick="toggleInsp(this)">하반기</span>
       <span class="insp-chip" data-val="done-text" onclick="toggleInsp(this)">점검완료</span>
     </div>
+    <input type="date" id="f-insp-from" onchange="applyFilters()" title="점검일 시작" style="width:130px">
+    <input type="date" id="f-insp-to" onchange="applyFilters()" title="점검일 종료" style="width:130px">
     <button type="button" id="sort-asc" class="sort-btn" onclick="setSort('asc')">그룹 ↑</button>
     <button type="button" id="sort-desc" class="sort-btn" onclick="setSort('desc')">그룹 ↓</button>
     <button type="button" class="reset-btn" onclick="resetFilters()">초기화</button>
@@ -254,6 +275,7 @@
   </div>
 </div>
 <div id="overlay"><div id="panel"></div></div>
+<div id="changes-overlay"><div id="changes-panel"></div></div>
 <script>
 // ── Firebase 초기화 ──
 const firebaseConfig={
@@ -344,6 +366,10 @@ overlay.addEventListener('mouseup',e=>{
   if(mdTarget===overlay&&e.target===overlay)closeDetail();
   mdTarget=null;
 });
+
+// 변경사항 오버레이 클릭 닫기
+const chOverlayEl=document.getElementById('changes-overlay');
+chOverlayEl.addEventListener('click',e=>{if(e.target===chOverlayEl)closeChanges();});
 
 // 모바일: textarea 내부 스크롤 시 패널 스크롤 방지
 (function(){
@@ -497,13 +523,14 @@ function updateSigungu(){
   const sel=document.getElementById('f-sigungu');sel.innerHTML='<option value="">전체 시구군</option>';
   sigs.forEach(s=>sel.innerHTML+=`<option value="${s}">${s}</option>`);
 }
-function resetFilters(){document.getElementById('search').value='';document.getElementById('f-do').value='';document.getElementById('f-sigungu').value='';document.getElementById('f-period').value='';document.getElementById('f-contract').value='';document.querySelectorAll('.insp-chip').forEach(c=>c.classList.remove('on'));setSort('');updateSigungu();applyFilters()}
+function resetFilters(){document.getElementById('search').value='';document.getElementById('f-do').value='';document.getElementById('f-sigungu').value='';document.getElementById('f-period').value='';document.getElementById('f-contract').value='';document.getElementById('f-insp-from').value='';document.getElementById('f-insp-to').value='';document.querySelectorAll('.insp-chip').forEach(c=>c.classList.remove('on'));setSort('');updateSigungu();applyFilters()}
 
 function toggleInsp(el){el.classList.toggle('on');applyFilters();}
 function getSelectedInsp(){return[...document.querySelectorAll('.insp-chip.on')].map(c=>c.dataset.val);}
 function setSort(mode){sortMode=sortMode===mode?'':mode;document.getElementById('sort-asc').classList.toggle('active',sortMode==='asc');document.getElementById('sort-desc').classList.toggle('active',sortMode==='desc');applyFilters()}
 function applyFilters(){
   const q=document.getElementById('search').value.toLowerCase();const dv=document.getElementById('f-do').value;const sv=document.getElementById('f-sigungu').value;const pv=document.getElementById('f-period').value;const cv=document.getElementById('f-contract').value;const ivs=getSelectedInsp();
+  const inspFrom=document.getElementById('f-insp-from').value;const inspTo=document.getElementById('f-insp-to').value;
   filtered=locations.filter(l=>{
     if(q&&![l.name,l.sid,l.address].join(' ').toLowerCase().includes(q))return false;
     if(dv&&l.do_!==dv)return false;if(sv&&l.sigungu!==sv)return false;
@@ -518,6 +545,13 @@ function applyFilters(){
       let bestInsp={cls:'not-done',label:'미점검'};
       for(const c of l.contracts){const ci_=getInspectionStatus(c.inspection);if(inspP.indexOf(ci_.cls)<inspP.indexOf(bestInsp.cls))bestInsp=ci_;}
       if(!ivs.includes(bestInsp.cls))return false;
+    }
+    if(inspFrom||inspTo){
+      const id=getLatestInspDate(l);
+      if(!id.date)return false;
+      const ds=id.date.toISOString().slice(0,10);
+      if(inspFrom&&ds<inspFrom)return false;
+      if(inspTo&&ds>inspTo)return false;
     }
     return true;
   });
@@ -605,7 +639,7 @@ function renderGrid(){
             <span class="tag ${ok?'ok':'no'}">${ok?'계약서 ✓':'계약서 없음'}</span>
             ${l.type_?`<span class="tag">${l.type_}</span>`:''}
             <span class="insp-badge ${groupInsp.cls}">${groupInsp.label}</span>
-            ${inspDate.str?`<span style="font-size:10px;color:var(--text3)">점검 ${inspDate.str}</span>`:''}
+            ${inspDate.str?`<span class="insp-date-tag">점검 ${inspDate.str}</span>`:''}
           </div>
         </div>
       </div>
@@ -645,7 +679,7 @@ function renderSingle(l,li,ci){
       ${l.endDate?`<div class="c-end">만료: ${l.endDate}</div>`:''}
       <div class="c-foot">
         <div class="c-charger">충전기 <span>${l.total||'-'}</span>기</div>
-        ${inspDate.str?`<div class="c-note" style="color:var(--text2)">점검 ${inspDate.str}</div>`:''}
+        ${inspDate.str?`<span class="insp-date-tag">점검 ${inspDate.str}</span>`:''}
       </div>
       ${l.note?`<div class="c-note" style="margin-top:4px;max-width:100%;white-space:normal;overflow:visible;font-size:11px;color:var(--text3)">${l.note}</div>`:''}
     </div>
@@ -1068,6 +1102,57 @@ function closeDetail(){
   overlay.classList.remove('open');document.body.style.overflow='';
   if(!_closingFromPop){try{history.back();}catch(e){}}
   _closingFromPop=false;
+}
+
+// ── 변경사항 패널 ──
+const fieldLabels={name:'충전소명',group:'그룹',type_:'충전소유형',do_:'도/지역',sigungu:'시구군',address:'주소',installType:'설치유형',grade:'국소등급',hasContract:'계약서유무',total:'충전기수',startDate:'계약시작일',period:'계약기간',endDate:'계약종료일',subsidyType:'보조금유형',subsidyObl:'의무기간',subsidyBase:'보조금기준',subsidyStart:'보조금시작',subsidyEnd:'보조금종료',revenue:'매출추이',inspection:'점검일자',inspector:'점검자',ownCharger:'당사충전기',installPos:'설치위치',ownPrice:'당사요금',ownParking:'병행주차',competitor:'타CPO',competitorPos:'타사위치',competitorQty:'타사수량',cpoPrice:'타사요금',cpoParking:'타사주차',note:'특이사항'};
+
+async function showChanges(){
+  const chOverlay=document.getElementById('changes-overlay');
+  const chPanel=document.getElementById('changes-panel');
+  let mods={};
+  try{
+    if(!fbAuth.currentUser) await fbAuth.signInAnonymously();
+    const snap=await fbRef.once('value');
+    mods=snap.val()||{};
+  }catch(e){console.warn('Firebase 로드 실패:',e);}
+
+  // rowIdx → location/contract 매핑
+  const items=[];
+  const seen=new Set();
+  locations.forEach(loc=>{
+    loc.contracts.forEach(contract=>{
+      const ri=String(contract._rowIdx);
+      if(!mods[ri])return;
+      const key=loc.sid||loc.name;
+      const fields=mods[ri];
+      items.push({name:loc.name,group:loc.group,sid:loc.sid,contractIdx:loc.contracts.indexOf(contract)+1,totalContracts:loc.contracts.length,fields});
+    });
+  });
+
+  if(!items.length){
+    chPanel.innerHTML=`<div class="ch-hd"><div class="ch-title">변경사항</div><div class="p-close" onclick="closeChanges()"><svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div></div><div class="ch-body"><div class="empty">변경된 내용이 없습니다</div></div>`;
+  }else{
+    let html=`<div class="ch-hd"><div class="ch-title">변경사항 (${items.length}건)</div><div class="p-close" onclick="closeChanges()"><svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div></div><div class="ch-body">`;
+    items.forEach(it=>{
+      html+=`<div class="ch-item"><div class="ch-item-hd"><span class="ch-item-name">${it.name}${it.totalContracts>1?' (계약'+it.contractIdx+')':''}</span><span class="ch-item-group">${it.group||''}</span></div>`;
+      Object.entries(it.fields).forEach(([k,v])=>{
+        if(v===''||v===null||v===undefined)return;
+        const label=fieldLabels[k]||k;
+        const val=String(v).length>100?String(v).substring(0,100)+'...':String(v);
+        html+=`<div class="ch-field"><span class="ch-field-name">${label}</span><span class="ch-field-val">${val}</span></div>`;
+      });
+      html+=`</div>`;
+    });
+    html+=`</div>`;
+    chPanel.innerHTML=html;
+  }
+  chOverlay.classList.add('open');
+  document.body.style.overflow='hidden';
+}
+function closeChanges(){
+  document.getElementById('changes-overlay').classList.remove('open');
+  document.body.style.overflow='';
 }
 
 // ── IndexedDB 영속성 ──────────────────────────────
