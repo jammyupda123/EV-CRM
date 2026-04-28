@@ -268,6 +268,7 @@
     <button type="button" id="sort-asc" class="sort-btn" onclick="setSort('asc')">그룹 ↑</button>
     <button type="button" id="sort-desc" class="sort-btn" onclick="setSort('desc')">그룹 ↓</button>
     <button type="button" class="reset-btn" onclick="resetFilters()">초기화</button>
+    <button type="button" class="sort-btn" onclick="addLocation()" style="background:var(--accent-bg);color:var(--accent);border-color:var(--accent)">+ 국소 추가</button>
   </div>
   <div class="main">
     <div class="grid" id="grid"></div>
@@ -288,6 +289,8 @@ firebase.initializeApp(firebaseConfig);
 const fbAuth=firebase.auth();
 const fbDB=firebase.database();
 const fbRef=fbDB.ref('modifications');
+const fbAddRef=fbDB.ref('additions');
+const fbDelRef=fbDB.ref('deletions');
 
 // 익명 인증 (보안 규칙 적용을 위해)
 let fbReady=false;
@@ -558,6 +561,8 @@ function applyFilters(){
   const q=document.getElementById('search').value.toLowerCase();const dv=document.getElementById('f-do').value;const sv=document.getElementById('f-sigungu').value;const pv=document.getElementById('f-period').value;const cv=document.getElementById('f-contract').value;const ivs=getSelectedInsp();
   const inspFrom=document.getElementById('f-insp-from').value;const inspTo=document.getElementById('f-insp-to').value;
   filtered=locations.filter(l=>{
+    // 삭제된 국소 제외
+    if(!l._isAdded && l.contracts.some(c=>_deletedIds.has(c._rowIdx)))return false;
     if(q&&![l.name,l.sid,l.address].join(' ').toLowerCase().includes(q))return false;
     if(dv&&l.do_!==dv)return false;if(sv&&l.sigungu!==sv)return false;
     if(pv){
@@ -591,11 +596,12 @@ function applyFilters(){
   const te=document.querySelector('.stat-chip.total');if(te)te.classList.toggle('active-filter',!pv2);
 }
 function buildStats(){
-  const cnt={danger:0,warning:0,caution:0,success:0,none:0};locations.forEach(l=>cnt[l.urgency]++);
+  const active=locations.filter(l=>!(!l._isAdded && l.contracts.some(c=>_deletedIds.has(c._rowIdx))));
+  const cnt={danger:0,warning:0,caution:0,success:0,none:0};active.forEach(l=>cnt[l.urgency]++);
   const cumul={danger:cnt.danger,warning:cnt.danger+cnt.warning,caution:cnt.danger+cnt.warning+cnt.caution,success:cnt.success,none:cnt.none};
   const lbl={danger:'3개월 이내',warning:'6개월 이내',caution:'1년 이내',success:'1년 이상',none:'만료/없음'};
   const bar=document.getElementById('stats-bar');
-  bar.innerHTML=`<div class="stat-chip total active-filter" onclick="quickFilter('')"><span class="stat-num">${locations.length}</span>전체 국소</div>`;
+  bar.innerHTML=`<div class="stat-chip total active-filter" onclick="quickFilter('')"><span class="stat-num">${active.length}</span>전체 국소</div>`;
   ['danger','warning','caution','success','none'].forEach(u=>{if(cumul[u]>0)bar.innerHTML+=`<div class="stat-chip ${u}" onclick="quickFilter('${u}')"><span class="stat-num">${cumul[u]}</span>${lbl[u]}</div>`});
   bar.innerHTML+=`<div class="stat-chip changes-chip" onclick="showChanges()" style="background:var(--surface);border-color:var(--border2);color:var(--text2);cursor:pointer"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg> 변경사항</div>`;
 }
@@ -785,7 +791,17 @@ function saveEdits(){
     const prev=before[f]??'';
     if(cur!==prev) fbFields[f]=contract[f]??'';
   });
-  if(Object.keys(fbFields).length) fbSave(contract._rowIdx, fbFields);
+  if(Object.keys(fbFields).length){
+    if(contract._isAdded){
+      // 추가된 국소: additions에 전체 데이터 저장
+      const allFields={};
+      editableFields.forEach(f=>{allFields[f]=contract[f]??'';});
+      allFields._modifiedAt=new Date().toISOString();
+      fbAddRef.child(contract._addId).set(allFields);
+    }else{
+      fbSave(contract._rowIdx, fbFields);
+    }
+  }
 
   // 다중계약: 점검일자,점검자,특이사항 등 국소 공통 필드를 다른 계약에도 동기화
   const sharedFields=['inspection','inspector','note','revenue','ownCharger','installPos','ownPrice','ownParking','competitor','competitorPos','competitorQty','cpoPrice','cpoParking'];
@@ -823,6 +839,79 @@ function restoreRecord(){
     Object.assign(l,best);l.contracts=restored;
   }
   pState.ed=false;renderPanel();renderGrid();
+}
+
+// ── 국소 추가/삭제/복사 ──
+let _deletedIds=new Set(); // 삭제된 rowIdx 집합
+let _addedLocations=[]; // 추가된 국소 목록
+
+function addLocation(){
+  const id='add_'+Date.now();
+  const newLoc={
+    _isAdded:true, _addId:id,
+    contracts:[{
+      _rowIdx:'add_'+Date.now(), _isAdded:true, _addId:id,
+      no:'',group:'',seq:'',sid:'',name:'(새 국소)',type_:'',do_:'',sigungu:'',address:'',installType:'',grade:'',hasContract:'',
+      fast100:'',fast50:'',slow_:'',total:'',baseDate:'',startDate:'',period:'',endDate:'',endDateObj:null,
+      daysLeft:null,urgency:'none',
+      subsidyType:'',subsidyObl:'',subsidyBase:'',subsidyStart:'',subsidyEnd:'',
+      revenue:'',inspection:'',inspector:'',ownCharger:'',installPos:'',ownPrice:'',ownParking:'',
+      competitor:'',competitorPos:'',competitorQty:'',cpoPrice:'',cpoParking:'',note:''
+    }],
+    name:'(새 국소)',sid:'',group:'',type_:'',do_:'',sigungu:'',address:'',grade:'',
+    daysLeft:null,urgency:'none',endDate:'',total:'',hasContract:'',installType:'',
+    inspection:'',note:''
+  };
+  locations.push(newLoc);
+  // Firebase에 저장
+  fbAddRef.child(id).set(newLoc.contracts[0]);
+  applyFilters();
+  // 새 카드의 상세 패널 열고 편집모드
+  const idx=filtered.findIndex(l=>l._addId===id);
+  if(idx>=0){pState={li:idx,ci:0,ed:false};openDetail(idx,0);enterEdit();}
+}
+
+function deleteLocation(){
+  const l=filtered[pState.li];
+  if(!confirm(`"${l.name}" 국소를 삭제하시겠습니까?`))return;
+
+  if(l._isAdded){
+    // 추가된 국소: Firebase additions에서 삭제, locations에서 제거
+    fbAddRef.child(l._addId).remove();
+    const li=locations.indexOf(l);
+    if(li>=0)locations.splice(li,1);
+  }else{
+    // 원본 엑셀 국소: deletions에 rowIdx 추가
+    l.contracts.forEach(c=>{
+      _deletedIds.add(c._rowIdx);
+      fbDelRef.child(String(c._rowIdx)).set(true);
+    });
+  }
+  closeDetail();
+  applyFilters();
+}
+
+function copyLocation(){
+  const l=filtered[pState.li];
+  if(!confirm(`"${l.name}" 국소를 복사하시겠습니까?`))return;
+  const id='add_'+Date.now();
+  const copiedContract=JSON.parse(JSON.stringify(l.contracts[0]));
+  copiedContract._rowIdx='add_'+Date.now();
+  copiedContract._isAdded=true;
+  copiedContract._addId=id;
+  copiedContract.name=l.name+' (복사)';
+
+  const newLoc=JSON.parse(JSON.stringify(l));
+  newLoc._isAdded=true;
+  newLoc._addId=id;
+  newLoc.name=l.name+' (복사)';
+  newLoc.contracts=[copiedContract];
+
+  locations.push(newLoc);
+  fbAddRef.child(id).set(copiedContract);
+  applyFilters();
+  const idx=filtered.findIndex(fl=>fl._addId===id);
+  if(idx>=0){openDetail(idx,0);enterEdit();}
 }
 
 function renderPanel(){
@@ -890,6 +979,12 @@ function renderPanel(){
     :`<div class="p-hd-btns">
         <button type="button" class="p-btn edit-btn" onclick="enterEdit()" title="편집 모드">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        </button>
+        <button type="button" class="p-btn" onclick="copyLocation()" title="복사" style="color:var(--accent)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        </button>
+        <button type="button" class="p-btn" onclick="deleteLocation()" title="삭제" style="color:var(--danger)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
         </button>
       </div>`;
 
@@ -988,6 +1083,8 @@ async function downloadFile(){
     loc.contracts.forEach(contract=>{
       const r=contract._rowIdx;
       if(r==null||r<0)return;
+      if(contract._isAdded)return; // 추가된 국소는 별도 처리
+      if(_deletedIds.has(r))return; // 삭제된 국소 제외
       Object.entries(FCOLS).forEach(([field,c])=>{
         const ref=XLSX.utils.encode_cell({r,c});
         updates[ref]=String(contract[field]??'');
@@ -1101,6 +1198,18 @@ async function downloadFile(){
         cellEl.appendChild(isEl);
       }
     });
+
+    // 삭제된 행을 XML에서 제거
+    if(_deletedIds.size>0){
+      const allRowEls=sheetData.getElementsByTagNameNS(ns,'row');
+      const toRemove=[];
+      for(let i=0;i<allRowEls.length;i++){
+        const rn=parseInt(allRowEls[i].getAttribute('r'),10);
+        // rowIdx는 0-based, Excel row는 1-based
+        if(_deletedIds.has(rn-1))toRemove.push(allRowEls[i]);
+      }
+      toRemove.forEach(el=>sheetData.removeChild(el));
+    }
 
     // 5) XML 직렬화 후 zip에 다시 넣기
     const serializer=new XMLSerializer();
@@ -1316,15 +1425,35 @@ function loadFromBuffer(buf){
 (function autoRestore(){
   // 1) 내장 데이터로 먼저 화면 표시
   loadFromBuffer(b64ToArrayBuffer(EMBEDDED_XLSX));
-  // 2) Firebase 리스너 설정 (인증 성공 여부와 무관하게 시도)
+  // 2) Firebase 리스너 설정
   function startListener(){
+    // 수정사항 리스너
     fbRef.on('value', snap=>{
       const mods=snap.val()||{};
       loadFromBuffer(b64ToArrayBuffer(EMBEDDED_XLSX));
       applyModifications(mods);
+      // 삭제 목록 로드
+      fbDelRef.once('value').then(dsnap=>{
+        _deletedIds=new Set();
+        const dels=dsnap.val()||{};
+        Object.keys(dels).forEach(k=>_deletedIds.add(isNaN(k)?k:Number(k)));
+        // 추가 국소 로드
+        fbAddRef.once('value').then(asnap=>{
+          const adds=asnap.val()||{};
+          Object.entries(adds).forEach(([id,data])=>{
+            // 이미 존재하면 스킵
+            if(locations.some(l=>l._addId===id))return;
+            const endObj=data.endDate?new Date(data.endDate.replace(/\./g,'-').substring(0,10)+'T12:00:00Z'):null;
+            const days=daysLeft(endObj&&!isNaN(endObj)?endObj:null);
+            const rec={...data,_rowIdx:'add_'+id,_isAdded:true,_addId:id,endDateObj:endObj,daysLeft:days,urgency:urg(days)};
+            const newLoc={...rec,contracts:[rec]};
+            locations.push(newLoc);
+          });
+          applyFilters();
+        });
+      });
     }, err=>{console.warn('Firebase read error:',err);});
   }
-  // 익명 인증 후 리스너 시작, 실패 시에도 리스너 시작 (공개 규칙 대비)
   fbAuth.signInAnonymously().then(()=>startListener()).catch(()=>startListener());
 })();
 
