@@ -364,7 +364,6 @@ function applyModifications(mods){
     const saved=loc.contracts;
     Object.assign(loc,best);loc.contracts=saved;
   });
-  buildStats();applyFilters();
 }
 
 const C={no:0,group:1,seq:2,sid:3,name:4,type_:5,do_:6,sigungu:7,address:8,installType:9,grade:11,contract:12,fast100:13,fast50:14,slow_:15,total:16,baseDate:17,startDate:18,period:19,endDate:20,subsidyType:22,subsidyObl:23,subsidyBase:24,subsidyStart:25,subsidyEnd:26,revenue:27,inspection:28,inspector:29,ownCharger:30,installPos:31,ownPrice:32,ownParking:33,competitor:34,competitorPos:35,competitorQty:36,cpoPrice:37,cpoParking:38,note:39};
@@ -1042,25 +1041,8 @@ function renderPanel(){
 async function downloadFile(){
   if(!origFileBuffer){alert('업로드된 파일이 없습니다.');return;}
 
-  // Firebase 최신 수정사항을 현재 locations에 반영
-  try{
-    if(!fbAuth.currentUser) await fbAuth.signInAnonymously();
-    const snap=await fbRef.once('value');
-    const mods=snap.val()||{};
-    if(Object.keys(mods).length){
-      locations.forEach(loc=>{
-        loc.contracts.forEach(contract=>{
-          const ri=String(contract._rowIdx);
-          if(mods[ri]){
-            Object.entries(mods[ri]).forEach(([field,val])=>{
-              contract[field]=val;
-              if(field in loc) loc[field]=val;
-            });
-          }
-        });
-      });
-    }
-  }catch(e){console.warn('Firebase 동기화 실패, 현재 메모리 데이터로 다운로드:',e);}
+  // Firebase 최신 데이터 전체 동기화 (수정+삭제+추가)
+  await loadAllFirebaseData();
 
   const FCOLS={
     name:C.name+1,group:C.group+1,type_:C.type_+1,
@@ -1422,37 +1404,46 @@ function loadFromBuffer(buf){
 }
 
 // 페이지 로드 시: 내장 데이터 로드 → Firebase 수정사항 적용 → 실시간 리스너
+async function loadAllFirebaseData(){
+  try{
+    if(!fbAuth.currentUser) await fbAuth.signInAnonymously();
+    const [modSnap,delSnap,addSnap]=await Promise.all([
+      fbRef.once('value'),
+      fbDelRef.once('value'),
+      fbAddRef.once('value')
+    ]);
+    // 1) 내장 데이터 초기화
+    loadFromBuffer(b64ToArrayBuffer(EMBEDDED_XLSX));
+    // 2) 수정사항 적용
+    const mods=modSnap.val()||{};
+    if(Object.keys(mods).length) applyModifications(mods);
+    // 3) 삭제 목록 적용
+    _deletedIds=new Set();
+    const dels=delSnap.val()||{};
+    Object.keys(dels).forEach(k=>_deletedIds.add(isNaN(k)?k:Number(k)));
+    // 4) 추가 국소 적용
+    const adds=addSnap.val()||{};
+    Object.entries(adds).forEach(([id,data])=>{
+      if(locations.some(l=>l._addId===id))return;
+      const endObj=data.endDate?new Date(data.endDate.replace(/\./g,'-').substring(0,10)+'T12:00:00Z'):null;
+      const days=daysLeft(endObj&&!isNaN(endObj)?endObj:null);
+      const rec={...data,_rowIdx:'add_'+id,_isAdded:true,_addId:id,endDateObj:endObj,daysLeft:days,urgency:urg(days)};
+      const newLoc={...rec,contracts:[rec]};
+      locations.push(newLoc);
+    });
+    // 5) 한번에 렌더
+    buildStats();applyFilters();
+  }catch(e){console.warn('Firebase 로드 실패:',e);}
+}
+
 (function autoRestore(){
-  // 1) 내장 데이터로 먼저 화면 표시
+  // 내장 데이터로 먼저 화면 표시
   loadFromBuffer(b64ToArrayBuffer(EMBEDDED_XLSX));
-  // 2) Firebase 리스너 설정
+  // Firebase 전체 로드 후 실시간 리스너
   function startListener(){
-    // 수정사항 리스너
-    fbRef.on('value', snap=>{
-      const mods=snap.val()||{};
-      loadFromBuffer(b64ToArrayBuffer(EMBEDDED_XLSX));
-      applyModifications(mods);
-      // 삭제 목록 로드
-      fbDelRef.once('value').then(dsnap=>{
-        _deletedIds=new Set();
-        const dels=dsnap.val()||{};
-        Object.keys(dels).forEach(k=>_deletedIds.add(isNaN(k)?k:Number(k)));
-        // 추가 국소 로드
-        fbAddRef.once('value').then(asnap=>{
-          const adds=asnap.val()||{};
-          Object.entries(adds).forEach(([id,data])=>{
-            // 이미 존재하면 스킵
-            if(locations.some(l=>l._addId===id))return;
-            const endObj=data.endDate?new Date(data.endDate.replace(/\./g,'-').substring(0,10)+'T12:00:00Z'):null;
-            const days=daysLeft(endObj&&!isNaN(endObj)?endObj:null);
-            const rec={...data,_rowIdx:'add_'+id,_isAdded:true,_addId:id,endDateObj:endObj,daysLeft:days,urgency:urg(days)};
-            const newLoc={...rec,contracts:[rec]};
-            locations.push(newLoc);
-          });
-          applyFilters();
-        });
-      });
-    }, err=>{console.warn('Firebase read error:',err);});
+    loadAllFirebaseData();
+    // 수정사항 변경 시 전체 재로드
+    fbRef.on('value', ()=>loadAllFirebaseData(), err=>{console.warn('Firebase read error:',err);});
   }
   fbAuth.signInAnonymously().then(()=>startListener()).catch(()=>startListener());
 })();
