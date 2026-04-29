@@ -296,35 +296,15 @@ const fbDelRef=fbDB.ref('deletions');
 let fbReady=false;
 fbAuth.signInAnonymously().then(()=>{fbReady=true;}).catch(e=>console.warn('Firebase auth:',e));
 
-// Firebase에 수정사항 저장 (타임스탬프 포함, 기존 불필요 필드 정리)
+// Firebase에 수정사항 저장 (타임스탬프 포함)
 async function fbSave(rowIdx, changedFields){
   changedFields._modifiedAt=new Date().toISOString();
   const ref=fbRef.child(String(rowIdx));
   try{
     if(!fbAuth.currentUser) await fbAuth.signInAnonymously();
-    // 기존 Firebase 데이터 읽기
-    const snap=await ref.once('value');
-    const existing=snap.val()||{};
-    // 기존 데이터에 새 변경사항 병합
-    const merged={...existing,...changedFields};
-    // 원본 엑셀과 동일한 값은 제거 (불필요한 필드 정리)
-    const cleaned={};
-    const norm=s=>String(s??'').replace(/\r\n/g,'\n').replace(/\s+/g,' ').trim();
-    Object.entries(merged).forEach(([k,v])=>{
-      if(k==='_modifiedAt'){cleaned[k]=v;return;}
-      if(!fieldLabels[k])return;
-      const orig=getOrigVal(rowIdx,k);
-      if(norm(v)!==norm(orig)) cleaned[k]=v;
-    });
-    if(Object.keys(cleaned).length<=1){
-      // _modifiedAt만 남으면 노드 삭제
-      ref.remove();
-    }else{
-      ref.set(cleaned);
-    }
-  }catch(e){
-    // 실패 시 fallback: update만
     ref.update(changedFields);
+  }catch(e){
+    console.warn('fbSave error:',e);
   }
 }
 
@@ -364,6 +344,7 @@ function applyModifications(mods){
     const saved=loc.contracts;
     Object.assign(loc,best);loc.contracts=saved;
   });
+  buildStats();applyFilters();
 }
 
 const C={no:0,group:1,seq:2,sid:3,name:4,type_:5,do_:6,sigungu:7,address:8,installType:9,grade:11,contract:12,fast100:13,fast50:14,slow_:15,total:16,baseDate:17,startDate:18,period:19,endDate:20,subsidyType:22,subsidyObl:23,subsidyBase:24,subsidyStart:25,subsidyEnd:26,revenue:27,inspection:28,inspector:29,ownCharger:30,installPos:31,ownPrice:32,ownParking:33,competitor:34,competitorPos:35,competitorQty:36,cpoPrice:37,cpoParking:38,note:39};
@@ -1451,11 +1432,11 @@ async function loadAllFirebaseData(){
       fbDelRef.once('value'),
       fbAddRef.once('value')
     ]);
-    // 1) 내장 데이터 초기화 (중간 렌더 방지)
+    // 1) 내장 데이터 초기화
     _suppressRender=true;
     loadFromBuffer(b64ToArrayBuffer(EMBEDDED_XLSX));
     _suppressRender=false;
-    // 2) 수정사항 적용
+    // 2) 수정사항 적용 (렌더 포함)
     const mods=modSnap.val()||{};
     if(Object.keys(mods).length) applyModifications(mods);
     // 3) 삭제 목록 적용
@@ -1472,7 +1453,7 @@ async function loadAllFirebaseData(){
       const newLoc={...rec,contracts:[rec]};
       locations.push(newLoc);
     });
-    // 5) 한번에 렌더
+    // 5) 최종 렌더
     buildStats();applyFilters();
   }catch(e){console.warn('Firebase 로드 실패:',e);}
 }
@@ -1480,13 +1461,10 @@ async function loadAllFirebaseData(){
 (function autoRestore(){
   // 내장 데이터로 먼저 화면 표시
   loadFromBuffer(b64ToArrayBuffer(EMBEDDED_XLSX));
-  // Firebase 전체 로드 후 실시간 리스너
-  function startListener(){
-    loadAllFirebaseData();
-    // 수정사항 변경 시 전체 재로드
-    fbRef.on('value', ()=>loadAllFirebaseData(), err=>{console.warn('Firebase read error:',err);});
-  }
-  fbAuth.signInAnonymously().then(()=>startListener()).catch(()=>startListener());
+  // 인증 후 Firebase 전체 로드
+  fbAuth.signInAnonymously()
+    .then(()=>loadAllFirebaseData())
+    .catch(()=>loadAllFirebaseData());
 })();
 
 </script>
