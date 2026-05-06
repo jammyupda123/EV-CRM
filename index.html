@@ -289,8 +289,8 @@ firebase.initializeApp(firebaseConfig);
 const fbAuth=firebase.auth();
 const fbDB=firebase.database();
 const fbRef=fbDB.ref('modifications');
-const fbAddRef=fbDB.ref('additions');
-const fbDelRef=fbDB.ref('deletions');
+const fbAddRef=fbDB.ref('modifications/_added');
+const fbDelRef=fbDB.ref('modifications/_deleted');
 
 // 익명 인증 (보안 규칙 적용을 위해)
 let fbReady=false;
